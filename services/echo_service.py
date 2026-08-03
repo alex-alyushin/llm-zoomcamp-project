@@ -24,9 +24,6 @@ class EchoService:
             file_content=message.file_content,
 
             external_chat_id=message.external_chat_id,
-            # external_user_id=message.external_user_id,
-            # external_user_name=message.external_user_name,
-            # external_message_id=message.external_message_id
         )
 
 

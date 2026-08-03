@@ -48,9 +48,9 @@ All three components run independently and synchronize through PostgreSQL using 
 
 You will need:
 
-* An OpenAI account, or an OpenAI-compatible provider such as Groq, Gemini, or Ollama
-* A Telegram bot token
-* A Bright Data token
+- An [OpenAI](https://openai.com/api) account, or an OpenAI-compatible provider such as [Groq](https://console.groq.com/docs/api-reference), [Gemini](https://ai.google.dev/api), or [Ollama](https://docs.ollama.com/api/introduction)
+- A [Telegram bot token](https://t.me/botfather)
+- A [Bright Data API token](https://docs.brightdata.com/api-reference/authentication)
 
 ### Running Locally
 

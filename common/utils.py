@@ -28,6 +28,4 @@ async def read_file(file_stream, mime_type, file_name) -> str | None:
     if mime_type == "application/pdf" or file_name.lower().endswith(".pdf"):
         return await read_pdf(file_stream)
 
-    # if docx ...
-
     return None

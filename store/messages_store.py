@@ -15,13 +15,15 @@ class MessagesStore:
         self.conn_listen = None
         self.conn_silent = None
 
-        # это должно быть глобально - например в main
+        # @todo: move and repeat global logger setup to each entry point `main`
+        #   - TelegramGateway
+        #   - LLMService
+        #   - SearchService
         logging.basicConfig(
             level=logging.WARNING,
             format="%(asctime)s [%(levelname)s] %(message)s"
         )
 
-        # а это окей
         self.logger = logging.getLogger("store")
         self.logger.setLevel(logging.INFO)
 
@@ -240,7 +242,6 @@ class MessagesStore:
         return messages
 
 
-    # это еще не тестировалось!
     async def sync_store_with_gateway(
         self, message_id,
         external_chat_id=None,

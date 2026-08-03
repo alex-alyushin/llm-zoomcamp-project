@@ -98,10 +98,6 @@ def drop_table_searches():
 
 # INDEX
 
-# Todo: init INDEX - когда подключу графану
-#   CREATE INDEX IF NOT EXISTS idx_messages_queue
-#   ON messages (role, processed, id);
-
 def create_index_on_messages():
     raise NotImplementedError()
 

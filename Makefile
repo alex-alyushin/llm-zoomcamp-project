@@ -1,12 +1,6 @@
 include .env
 export
 
-# run:
-# 	uv run python main.py
-
-# brightdata_test_api:
-# 	uv run python junk/brightdata_test_api.py
-
 network:
 	docker network inspect aggregator-net >/dev/null 2>&1 || \
 	docker network create aggregator-net
