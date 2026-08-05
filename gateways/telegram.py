@@ -9,10 +9,8 @@ from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
 from store.messages_store import MessagesStore
 from store.message_entity import MessageEntity
 
-from common.utils import read_file, truncate
-
-from dotenv import load_dotenv
-load_dotenv()
+from utils.utils import read_file, truncate
+from utils.log import configure_logging
 
 
 class TelegramGateway:
@@ -47,9 +45,13 @@ class TelegramGateway:
 
 
     async def _send_text(self, chat_id: str, text: str, parse_mode=None):
+
+        # @todo: send by many short messages
+        text = truncate(text, max_length=4096)
+
         return await self.bot.send_message(
             chat_id=chat_id,
-            text=truncate(text, max_length=4096),
+            text=text,
             parse_mode=parse_mode
         )
 
@@ -136,6 +138,12 @@ class TelegramGateway:
 
 
 async def main() -> None:
+
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    configure_logging(service_name="Telegram")
+
     telegram_token = os.getenv("TELEGRAM_TOKEN")
 
     messages_store = await MessagesStore.create(

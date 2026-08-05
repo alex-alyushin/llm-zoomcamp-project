@@ -4,9 +4,9 @@ from psycopg import sql
 from contextlib import asynccontextmanager
 
 from store.message_entity import MessageEntity, row_to_message
-from store.db_utils import database_connect_async
+from database.database_connect import database_connect_async
 
-from common.utils import truncate
+from utils.utils import truncate
 
 class MessagesStore:
 
@@ -14,15 +14,6 @@ class MessagesStore:
         self.conn_notify = None
         self.conn_listen = None
         self.conn_silent = None
-
-        # @todo: move and repeat global logger setup to each entry point `main`
-        #   - TelegramGateway
-        #   - LLMService
-        #   - SearchService
-        logging.basicConfig(
-            level=logging.WARNING,
-            format="%(asctime)s [%(levelname)s] %(message)s"
-        )
 
         self.logger = logging.getLogger("store")
         self.logger.setLevel(logging.INFO)
@@ -62,10 +53,10 @@ class MessagesStore:
         file_content = f"File: {"None" if file_content is None else file_content}"
 
         self.logger.info(
-            "%-8s %-12s %-12s %-12s %-60s %-60s",
-            method[:8], role[:12], gateway[:12], direction[:12],
-            truncate(text_content, max_length=60, flat=True),
-            truncate(file_content, max_length=60, flat=True)
+            "%-8s %-10s %-10s %-10s %-50s %-50s",
+            method[:8], role[:10], gateway[:10], direction[:10],
+            truncate(text_content, max_length=50, flat=True),
+            truncate(file_content, max_length=50, flat=True)
         )
 
 

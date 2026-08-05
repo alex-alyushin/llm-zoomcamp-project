@@ -1,5 +1,4 @@
 import os
-import json
 import asyncio
 
 from openai import OpenAI
@@ -7,11 +6,11 @@ from openai import OpenAI
 from store.messages_store import MessagesStore
 from store.message_entity import MessageEntity
 
-from prompts.system_prompt_v0 import system_prompt_v0
-from prompts.system_prompt_v1 import system_prompt_v1
+from .system_prompt_v0 import system_prompt_v0
+from .system_prompt_v1 import system_prompt_v1
 
-from dotenv import load_dotenv
-load_dotenv()
+from utils.utils import is_json
+from utils.log import configure_logging
 
 class LLMService:
 
@@ -77,26 +76,16 @@ class LLMService:
     async def send_message_to_llm(self, message: MessageEntity):
 
         llm_input = await self._load_llm_history(chat_id=message.external_chat_id)
-
         llm_response = self._ask_llm(llm_input=llm_input)
 
-        try:
-            search_params = json.loads(llm_response.output_text)
+        llm_response_direction = "internal" if is_json(llm_response.output_text) else "outgoing"
 
-            await self._send_message(
-                direction="internal",
-                gateway=message.gateway,
-                text_content=json.dumps(search_params),
-                external_chat_id=message.external_chat_id,
-            )
-
-        except json.JSONDecodeError:
-            await self._send_message(
-                direction="outgoing",
-                gateway=message.gateway,
-                text_content=llm_response.output_text,
-                external_chat_id=message.external_chat_id,
-            )
+        await self._send_message(
+            direction=llm_response_direction,
+            gateway=message.gateway,
+            text_content=llm_response.output_text,
+            external_chat_id=message.external_chat_id,
+        )
 
 
     async def run(self):
@@ -108,6 +97,11 @@ class LLMService:
 
 
 async def main() -> None:
+
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    configure_logging(service_name="LLMService")
 
     openai_token = os.getenv("OPENAI_TOKEN")
     openai_model = os.getenv("OPENAI_MODEL")

@@ -1,4 +1,14 @@
+import json
 import fitz
+
+
+def is_json(value):
+    try:
+        json.loads(value)
+        return True
+    except:
+        return False
+
 
 def truncate(text, max_length=100, flat=False):
     ELLIPSIS = "..."
