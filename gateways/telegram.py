@@ -1,14 +1,15 @@
 import os
-import json
 import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message as TGMessage, BufferedInputFile
-from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 
-from store.messages_store import MessagesStore, AsyncCursor
+from psycopg import AsyncCursor
+
+from store.messages_store import MessagesStore
 from store.message_entity import MessageEntity
 
 from utils.utils import read_file, truncate
@@ -66,25 +67,6 @@ class TelegramGateway:
             external_user_id=str(message.from_user.id),
             external_user_name=str(message.from_user.username),
             external_message_id=str(message.message_id)
-        )
-
-
-    async def _extract_file(self, message: TGMessage):
-        document = message.document
-
-        if document is None:
-            return None
-
-        file_name = document.file_name
-        mime_type = document.mime_type
-
-        file_object = await self.bot.get_file(document.file_id)
-        file_stream = await self.bot.download(file_object)
-
-        return await read_file(
-            file_stream=file_stream,
-            mime_type=mime_type,
-            file_name=file_name,
         )
 
 
@@ -169,10 +151,27 @@ class TelegramGateway:
         return None
 
 
-    # todo: debug
     async def resolve_session(self, message: TGMessage) -> None:
         await self.messages_store.resolve_session(
             external_chat_id=str(message.chat.id)
+        )
+
+    async def _extract_file(self, message: TGMessage):
+        document = message.document
+
+        if document is None:
+            return None
+
+        file_name = document.file_name
+        mime_type = document.mime_type
+
+        file_object = await self.bot.get_file(document.file_id)
+        file_stream = await self.bot.download(file_object)
+
+        return await read_file(
+            file_stream=file_stream,
+            mime_type=mime_type,
+            file_name=file_name,
         )
 
 
@@ -181,7 +180,7 @@ async def main() -> None:
     from dotenv import load_dotenv
     load_dotenv()
 
-    configure_logging(service_name="Telegram")
+    configure_logging(service_name="TelegramGate")
 
     telegram_token = os.getenv("TELEGRAM_TOKEN")
 

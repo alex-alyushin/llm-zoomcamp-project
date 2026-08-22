@@ -5,12 +5,12 @@ import html
 import logging
 import asyncio
 
+from psycopg import AsyncCursor
+
 from store.message_entity import MessageEntity
 from store.document_entity import DocumentEntity
 
-from store.messages_store import MessagesStore, AsyncCursor
-
-from embedding.embedder import Embedder
+from store.messages_store import MessagesStore
 
 from utils.log import configure_logging
 
@@ -20,7 +20,6 @@ class ReportService:
     def __init__(self, messages_store: MessagesStore):
         self.logger = logging.getLogger("report_service")
         self.messages_store = messages_store
-        self.embedder = Embedder()
 
 
     async def run(self):
@@ -37,32 +36,14 @@ class ReportService:
 
     async def report(self, cursor: AsyncCursor, message: MessageEntity):
 
-        search_initiator = int(message.text_content)
+        results: list[tuple[DocumentEntity, float]] = []
 
-        documents = await self.messages_store.load_search_results(
+        results = await self.messages_store.load_search_results(
             cursor,
-            search_initiator=search_initiator,
+            message=message,
         )
 
-        if not documents:
-            return
-
-        embeddings = self.embedder.encode_batch(
-            texts=[
-                self._parse_document_text(document.document)
-                for document in documents
-            ]
-        )
-
-        for document, embedding in zip(documents, embeddings):
-            await self.messages_store.update_document_embedding(
-                cursor,
-                document=document,
-                embedding=embedding,
-            )
-
-        # tmp
-        for document in documents:
+        for document, _ in results:
             await self.messages_store.store(
                 role="report",
                 gateway=message.gateway,
@@ -73,19 +54,27 @@ class ReportService:
                 external_chat_id=message.external_chat_id
             )
 
+        await self.messages_store.store(
+            role="report",
+            gateway=message.gateway,
+            direction="outgoing",
+            text_content=self.make_report(results=results),
+            external_chat_id=message.external_chat_id,
+        )
 
-    def _parse_document_text(self, document: dict) -> str:
-        job_description_formatted = document.get("job_description_formatted")
-        job_summary = document.get("job_summary")
-        job_title = document.get("job_title")
 
-        return f"""
-        {job_title}
+    def make_report(self, results: list[tuple[DocumentEntity, float]]):
 
-        {job_summary}
+        lines = [f"📦 <b>Found {len(results)} documents</b>\n"]
 
-        {job_description_formatted}
-        """
+        for document, cv_similarity in results:
+            url     = html.escape(document.document.get("url") or "", quote=True)
+            title   = html.escape(document.document.get("job_title") or "")
+            rel     = int(cv_similarity * 100)
+
+            lines.append(f'<code>{rel}% CV match</code> <a href="{url}">{title}</a>')
+
+        return "\n".join(lines)
 
 
     def _parse_filename(self, document: dict) -> str:
@@ -102,7 +91,6 @@ class ReportService:
         company = html.escape(document.get("company_name") or "")
 
         return f'<b><a href="{url}">{title}</a></b>\n<b>{company}</b>\n\n{summary}'
-
 
 
 async def main() -> None:

@@ -2,6 +2,7 @@
 .env
 
 .drafts
+tmp
 
 __pycache__
 *.pyc

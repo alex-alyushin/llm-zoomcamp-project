@@ -1,13 +1,15 @@
-import json
 import logging
 
-from psycopg import sql, AsyncCursor
+import numpy as np
+
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from contextlib import asynccontextmanager
 
-from store.message_entity import MessageEntity, row_to_message
 from store.document_entity import DocumentEntity, row_to_document
+from store.message_entity import MessageEntity, row_to_message
+from store.user_entity import UserEntity, row_to_user
 
 from database.database_connect import database_connect_async
 
@@ -35,7 +37,7 @@ class MessagesStore:
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.close()
-    
+
 
     @asynccontextmanager
     async def _with_transaction(self, conn):
@@ -111,7 +113,7 @@ class MessagesStore:
             ))
 
             self._log_store_access(
-                "Store",
+                "Save",
                 role=role,
                 gateway=gateway,
                 direction=direction,
@@ -180,7 +182,7 @@ class MessagesStore:
                     message = row_to_message(row)
 
                     self._log_store_access(
-                        "Load",
+                        "Read",
                         role=message.role,
                         gateway=message.gateway,
                         direction=direction,
@@ -210,10 +212,10 @@ class MessagesStore:
         file = f"Filename: {file_name or file_content or "None"}"
 
         self.logger.info(
-            "%-8s %-10s %-10s %-10s %-50s %-50s",
-            method[:8], role[:10], gateway[:10], direction[:10],
-            truncate(text, max_length=50, flat=True),
-            truncate(file, max_length=50, flat=True)
+            "%-4s %-16s %-16s %-16s %-48s %-48s",
+            method[:4], role[:16], gateway[:16], direction[:16],
+            truncate(text, max_length=48, flat=True),
+            truncate(file, max_length=48, flat=True)
         )
 
 
@@ -248,6 +250,15 @@ class MessagesStore:
         return [row_to_message(row) for row in rows]
 
 
+    async def resolve_session(self, external_chat_id):
+        async with self._with_transaction(conn=self.conn_silent) as cursor:
+            await cursor.execute("""
+                UPDATE messages
+                SET resolved_at = now()
+                WHERE resolved_at IS NULL AND external_chat_id = %s
+            """, (external_chat_id,))
+
+
     async def sync_store_with_gateway(
         self,
         cursor,
@@ -275,68 +286,154 @@ class MessagesStore:
         ))
 
 
-    # only conn_silent user
-    async def resolve_session(self, external_chat_id):
-        async with self._with_transaction(conn=self.conn_silent) as cursor:
-            await cursor.execute("""
-                UPDATE messages
-                SET resolved_at = now()
-                WHERE resolved_at IS NULL AND external_chat_id = %s
-            """, (external_chat_id,))
+    #########
+    # USERS #
+    #########
+
+    async def ensure_user(
+        self, cursor, *,
+        message: MessageEntity,
+    ):
+        await cursor.execute("""
+            SELECT
+                id,
+                gateway,
+                external_chat_id,
+                external_user_id,
+                external_user_name,
+                created_at
+            FROM users
+            WHERE gateway = %s
+                AND external_chat_id = %s
+                AND external_user_id = %s
+        """, (
+            message.gateway,
+            message.external_chat_id,
+            message.external_user_id,
+        ))
+
+        row = await cursor.fetchone()
+
+        if row is not None:
+            return row_to_user(row)
+
+        await cursor.execute("""
+            INSERT INTO users (
+                gateway,
+                external_chat_id,
+                external_user_id,
+                external_user_name
+            ) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (gateway, external_chat_id, external_user_id)
+            DO UPDATE SET external_user_name = EXCLUDED.external_user_name
+            RETURNING
+                id,
+                gateway,
+                external_chat_id,
+                external_user_id,
+                external_user_name,
+                created_at
+        """, (
+            message.gateway,
+            message.external_chat_id,
+            message.external_user_id,
+            message.external_user_name,
+        ))
+
+        row = await cursor.fetchone()
+
+        if row is not None:
+            return row_to_user(row)
+
+        return None
 
 
-    # another table
-    async def store_document(self, cursor, *, search_initiator, document):
+    ############
+    # USER CVs #
+    ############
+
+    async def store_user_cv(
+        self, cursor, *,
+        content: str,
+        embedding: np.ndarray,
+        user: UserEntity,
+    ):
+        await cursor.execute("""
+            INSERT INTO user_cvs (
+                content,
+                embedding,
+                user_id
+            ) VALUES (%s, %s, %s)
+        """, (
+            content,
+            embedding,
+            user.id,
+        ))
+
+
+    #############
+    # DOCUMENTS #
+    #############
+
+    async def store_document(
+        self, cursor, *,
+        document: dict,
+        embedding: np.ndarray,
+        message: MessageEntity,
+        user: UserEntity,
+    ):
         await cursor.execute("""
             INSERT INTO documents (
                 source,
                 provider,
                 document,
                 embedding,
-                search_initiator
-            ) VALUES (%s, %s, %s, %s, %s)
+                search_id,
+                user_id
+            ) VALUES (%s, %s, %s, %s, %s, %s)
         """, (
             "linkedin",
             "brightdata",
             Jsonb(document),
-            None, # Report does it
-            search_initiator,
+            embedding,
+            message.id,
+            user.id,
         ))
 
+
     async def load_search_results(
-        self,
-        cursor,
-        *,
-        search_initiator
-    ) -> list[DocumentEntity]:
+        self, cursor, *,
+        message: MessageEntity,
+    ) -> list[tuple[DocumentEntity, float]]:
+
+        search_id = int(message.text_content)
 
         await cursor.execute("""
             SELECT
-                id,
-                source,
-                provider,
-                document,
-                embedding,
-                search_initiator,
-                created_at
+                documents.id,
+                documents.source,
+                documents.provider,
+                documents.document,
+                documents.embedding,
+                documents.search_id,
+                documents.user_id,
+                documents.created_at,
+                1 - (documents.embedding <=> user_cvs.embedding) AS cv_similarity
             FROM documents
-            WHERE search_initiator = %s
-        """, (search_initiator,))
+            LEFT JOIN LATERAL (
+                SELECT embedding
+                FROM user_cvs
+                WHERE user_cvs.user_id = documents.user_id
+                ORDER BY user_cvs.id DESC
+                LIMIT 1
+            ) AS user_cvs ON TRUE
+            WHERE documents.search_id = %s
+            ORDER BY cv_similarity DESC
+        """, (search_id,))
 
         rows = await cursor.fetchall()
 
-        return [row_to_document(row) for row in rows]
-
-    async def update_document_embedding(
-        self,
-        cursor,
-        *,
-        document,
-        embedding
-    ):
-
-        await cursor.execute("""
-            UPDATE documents
-            SET embedding = %s
-            WHERE id = %s
-        """, (embedding, document.id))
+        return [(
+            row_to_document(row[:8]),
+            row[8], # cv similarity
+        ) for row in rows]
